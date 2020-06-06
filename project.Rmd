@@ -1,0 +1,136 @@
+---
+title: "Practical Machine Learning Project"
+author: "Rishi Dinesh"
+date: "06/06/2020"
+output: html_document
+---
+## Overview
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+This project uses data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The goal of this project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set.
+
+The dataset used in this project is a courtesy of “Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers’ Data Classification of Body Postures and Movements”
+
+## Loading required libraries
+
+```{r}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+```
+
+## Getting and Preprocessing the data
+
+```{r}
+train<-read.csv("train.csv")
+validate<-read.csv("test.csv")
+dim(train)
+dim(validate)
+```
+
+### Cleaning the data 
+
+We first remove the variables that contain missing values
+```{r}
+trainData<- train[, colSums(is.na(train)) == 0]
+validData <- validate[, colSums(is.na(validate)) == 0]
+dim(trainData)
+dim(validData)
+```
+We will also remove the first seven variables as they have very little impact on the outcome variable
+```{r}
+trainData <- trainData[, -c(1:7)]
+validData <- validData[, -c(1:7)]
+dim(trainData)
+dim(validData)
+```
+
+### Preparing datasets for prediction
+
+We further split the training dataset into train and test data (70-30 split) for prediction.
+```{r}
+set.seed(1234) 
+inTrain <- createDataPartition(trainData$classe, p = 0.7, list = FALSE)
+trainData <- trainData[inTrain, ]
+testData <- trainData[-inTrain, ]
+dim(trainData)
+dim(testData)
+```
+We further clean the dataset by removing variables that have near zero variance
+```{r}
+NZV <- nearZeroVar(trainData)
+trainData <- trainData[, -NZV]
+testData  <- testData[, -NZV]
+dim(trainData)
+dim(testData)
+```
+We are now finally down to 53 variables.
+
+We will now build a correlation matrix between the variables. We will then use the findCorrelation function to search for highly correlated attributes with a cut off equal to 0.75
+```{r}
+cor_mat <- cor(trainData[, -53])
+highlyCorrelated = findCorrelation(cor_mat, cutoff=0.75)
+names(trainData)[highlyCorrelated]
+```
+
+## Model building
+
+For this project, we will use two different algorithms, classification tree and random forest to predict the outcome.
+
+### Classification trees
+
+We will first build the model for a classification tree
+```{r}
+set.seed(12345)
+mod1<- rpart(classe ~ ., data=trainData, method="class")
+fancyRpartPlot(mod1)
+```
+
+
+We will then determine the accuracy of the model by running it on the test data.
+```{r}
+predict1 <- predict(mod1, testData, type = "class")
+cmtree <- confusionMatrix(predict1, testData$classe)
+cmtree
+round(cmtree$overall['Accuracy'], 4)
+```
+We see that the **accuracy rate of the model is low (~76%)** and therefore the **out-of-sample-error is about 0.24** which is considerable.
+
+### Random forest
+
+Again, we will start by building the model for random forest
+```{r}
+trControl <- trainControl(method="cv", number=5)
+mod2 <- train(classe~., data=trainData, method="rf", trControl=trControl, verbose=FALSE,ntree=10)
+mod2$finalModel
+```
+We will then determine the accuracy of the model by running it on the test data.
+```{r}
+predict2 <- predict(mod2, newdata=testData)
+cmrf <- confusionMatrix(predict2, testData$classe)
+cmrf
+round(cmrf$overall['Accuracy'], 4)
+```
+The **accuracy rate using the random forest is very high** and therefore the **out-of-sample-error is equal to 0.**
+
+### Plotting the confusion matrices
+
+Let us plot the confusion matrices of the above two models to get a better understanding before fitting the validation data on the best model.
+
+```{r}
+plot(cmtree$table, col = cmtree$byClass, 
+     main = paste("Decision Tree - Accuracy =", round(cmtree$overall['Accuracy'], 4)))
+
+plot(cmrf$table, col = cmrf$byClass, main = paste("Random Forest Confusion Matrix: Accuracy =", round(cmrf$overall['Accuracy'], 4)))
+```
+
+## Applying the best model to the validation data 
+
+By comparing the accuracy rate values of the two models, it is clear the the ‘Random Forest’ model is the winner. So will use it on the validation data
+```{r}
+Results <- predict(mod2, newdata=validData)
+Results
+```
+
